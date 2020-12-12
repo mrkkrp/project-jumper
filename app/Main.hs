@@ -9,7 +9,6 @@ import Data.List (intercalate, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Data.Ord (Down (..))
-import Data.Ratio (Ratio, (%))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Version (showVersion)
@@ -75,6 +74,7 @@ selectMatch ::
 selectMatch keyword projects = do
   case NE.groupWith fst
     . sortOn (Down . fst)
+    . filter ((> 0) . fst)
     $ fmap assignScore projects of
     [] -> giveup "No matches found."
     (matches : _) -> return (snd <$> matches)
@@ -89,11 +89,14 @@ score ::
   -- | Project name
   Text ->
   -- | The score
-  Ratio Int
+  Int
 score keyword name =
   if k `T.isInfixOf` n
-    then T.length k % T.length n
-    else 0 % 1
+    then
+      if T.length k == T.length n
+        then 2
+        else 1
+    else 0
   where
     k = T.toLower keyword
     n = T.toLower name
