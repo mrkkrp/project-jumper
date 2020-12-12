@@ -7,16 +7,19 @@ module Main (main) where
 import Control.Monad (forM)
 import Data.List (intercalate, sortOn)
 import Data.List.NonEmpty (NonEmpty (..), groupWith)
+import Data.Ord (Down (..))
+import Data.Ratio (Ratio, (%))
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Text.Metrics (damerauLevenshtein)
 import Data.Version (showVersion)
 import Development.GitRev
 import Options.Applicative
 import Path
 import Path.IO
 import Paths_project_jumper (version)
+import System.Exit (exitFailure)
 import System.FilePath (dropTrailingPathSeparator)
+import System.IO (hPutStrLn, stderr)
 
 main :: IO ()
 main = do
@@ -27,8 +30,8 @@ main = do
   print projects
   target <-
     selectMatch optKeyword projects >>= \case
-      Left choices -> chooseMatch choices
-      Right x -> return x
+      x :| [] -> return x
+      choices -> chooseMatch choices
   projectDir projectsRoot target >>= putStrLn . fromAbsDir
 
 -- | The root of the project directory.
@@ -67,19 +70,34 @@ selectMatch ::
   -- | Projects to choose from
   [Project] ->
   -- | Either a collection of close-enough projects or a definitive match
-  IO (Either (NonEmpty Project) Project)
+  IO (NonEmpty Project)
 selectMatch keyword projects = do
-  -- TODO Also define minimal acceptable distance
-  case groupWith fst (sortOn fst (assignScore <$> projects)) of
-    [] -> error "No matches." -- FIXME
-    (x : _) ->
-      return $
-        case x of
-          ((_, p) :| []) -> Right p
-          _ -> Left (snd <$> x)
+  case groupWith fst
+    . sortOn (Down . fst)
+    $ fmap assignScore projects of
+    [] -> do
+      hPutStrLn stderr "No matches found."
+      exitFailure
+    (matches : _) -> return (snd <$> matches)
   where
     assignScore project =
-      (damerauLevenshtein keyword (projectName project), project)
+      (score keyword (projectName project), project)
+
+-- | Calculate the similarity score between the keyword and a project name.
+score ::
+  -- | The keyword
+  Text ->
+  -- | Project name
+  Text ->
+  -- | The score
+  Ratio Int
+score keyword name =
+  if k `T.isInfixOf` n
+    then T.length k % T.length n
+    else 0 % 1
+  where
+    k = T.toLower keyword
+    n = T.toLower name
 
 -- | Prompt the user to choose among the given projects.
 chooseMatch ::
