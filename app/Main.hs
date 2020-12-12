@@ -4,9 +4,10 @@
 
 module Main (main) where
 
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
 import Data.List (intercalate, sortOn)
-import Data.List.NonEmpty (NonEmpty (..), groupWith)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import Data.Ord (Down (..))
 import Data.Ratio (Ratio, (%))
 import Data.Text (Text)
@@ -17,17 +18,16 @@ import Options.Applicative
 import Path
 import Path.IO
 import Paths_project_jumper (version)
+import System.Console.ANSI
 import System.Exit (exitFailure)
 import System.FilePath (dropTrailingPathSeparator)
-import System.IO (hPutStrLn, stderr)
+import System.IO
 
 main :: IO ()
 main = do
   Opts {..} <- execParser optsParserInfo
   projectsRoot <- getProjectsRoot
   projects <- listProjects projectsRoot
-  print optKeyword
-  print projects
   target <-
     selectMatch optKeyword projects >>= \case
       x :| [] -> return x
@@ -50,6 +50,7 @@ data Project = Project
 getProjectsRoot :: IO ProjectsRoot
 getProjectsRoot = do
   homeDir <- getHomeDir
+  -- TODO The root should be configurable
   return $ ProjectsRoot (homeDir </> $(mkRelDir "projects"))
 
 -- | List available projects.
@@ -72,12 +73,10 @@ selectMatch ::
   -- | Either a collection of close-enough projects or a definitive match
   IO (NonEmpty Project)
 selectMatch keyword projects = do
-  case groupWith fst
+  case NE.groupWith fst
     . sortOn (Down . fst)
     $ fmap assignScore projects of
-    [] -> do
-      hPutStrLn stderr "No matches found."
-      exitFailure
+    [] -> giveup "No matches found."
     (matches : _) -> return (snd <$> matches)
   where
     assignScore project =
@@ -103,9 +102,30 @@ score keyword name =
 chooseMatch ::
   NonEmpty Project ->
   IO Project
-chooseMatch (x :| _) = do
-  print x
-  return x
+chooseMatch xs = do
+  -- TODO The use of color should be configurable
+  let withSGR sgrs m = do
+        hSetSGR stderr sgrs
+        () <- m
+        hSetSGR stderr [Reset]
+      cyan = withSGR [SetColor Foreground Dull Cyan]
+      -- green = withSGR [SetColor Foreground Dull Green]
+      put = hPutStr stderr
+      -- TODO The letters should be configurable
+      choices = NE.zip (NE.fromList "aoeuhtns") xs
+  forM_ choices $ \(letter, Project {..}) -> do
+    cyan $ put [letter]
+    put " "
+    put (T.unpack projectOwner)
+    put "/"
+    -- TODO The keyword substring should be highlighted in green
+    put (T.unpack projectName)
+    put "\n"
+  hSetBuffering stdin NoBuffering
+  usersChoice <- getChar
+  case lookup usersChoice (NE.toList choices) of
+    Nothing -> giveup "Invalid selection."
+    Just x -> return x
 
 -- | Obtain absolute path to the project directory.
 projectDir ::
@@ -119,6 +139,12 @@ projectDir (ProjectsRoot projectRoot) Project {..} = do
   ownerDir <- parseRelDir (T.unpack projectOwner)
   nameDir <- parseRelDir (T.unpack projectName)
   return (projectRoot </> ownerDir </> nameDir)
+
+-- | Print a message to 'stderr' and stop execution with non-zero exit code.
+giveup :: String -> IO a
+giveup msg = do
+  hPutStrLn stderr msg
+  exitFailure
 
 ----------------------------------------------------------------------------
 -- Command line options parsing
