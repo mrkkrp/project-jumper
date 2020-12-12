@@ -30,7 +30,7 @@ main = do
   target <-
     selectMatch optKeyword projects >>= \case
       x :| [] -> return x
-      choices -> chooseMatch choices
+      choices -> chooseMatch optKeyword choices
   projectDir projectsRoot target >>= putStrLn . fromAbsDir
 
 -- | The root of the project directory.
@@ -103,16 +103,19 @@ score keyword name =
 
 -- | Prompt the user to choose among the given projects.
 chooseMatch ::
+  -- | The keyword
+  Text ->
+  -- | The projects to choose from
   NonEmpty Project ->
   IO Project
-chooseMatch xs = do
+chooseMatch keyword xs = do
   -- TODO The use of color should be configurable
   let withSGR sgrs m = do
         hSetSGR stderr sgrs
         () <- m
         hSetSGR stderr [Reset]
       cyan = withSGR [SetColor Foreground Dull Cyan]
-      -- green = withSGR [SetColor Foreground Dull Green]
+      green = withSGR [SetColor Foreground Dull Green]
       put = hPutStr stderr
       -- TODO The letters should be configurable
       choices = NE.zip (NE.fromList "aoeuhtns") xs
@@ -121,8 +124,14 @@ chooseMatch xs = do
     put " "
     put (T.unpack projectOwner)
     put "/"
-    -- TODO The keyword substring should be highlighted in green
-    put (T.unpack projectName)
+    let (lowercasePrefix, _) =
+          T.breakOn (T.toLower keyword) (T.toLower projectName)
+        prefixLength = T.length lowercasePrefix
+        (prefix, rest) = T.splitAt prefixLength projectName
+        (match, suffix) = T.splitAt (T.length keyword) rest
+    put (T.unpack prefix)
+    green $ put (T.unpack match)
+    put (T.unpack suffix)
     put "\n"
   hSetBuffering stdin NoBuffering
   usersChoice <- getChar
@@ -154,7 +163,7 @@ giveup msg = do
 
 data Opts = Opts
   { -- | Keyword that identifies the project.
-    optKeyword :: Text
+    optKeyword :: Text -- TODO have a wrapper for keyword
   }
 
 optsParserInfo :: ParserInfo Opts
