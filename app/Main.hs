@@ -33,6 +33,9 @@ main = do
       choices -> chooseMatch optKeyword choices
   projectDir projectsRoot target >>= putStrLn . fromAbsDir
 
+-- | Keyword to use for search for matches.
+newtype Keyword = Keyword Text
+
 -- | The root of the project directory.
 newtype ProjectsRoot = ProjectsRoot (Path Abs Dir)
 
@@ -66,7 +69,7 @@ listProjects (ProjectsRoot root) = do
 -- | Select a matching project(s).
 selectMatch ::
   -- | The keyword
-  Text ->
+  Keyword ->
   -- | Projects to choose from
   [Project] ->
   -- | Either a collection of close-enough projects or a definitive match
@@ -85,12 +88,12 @@ selectMatch keyword projects = do
 -- | Calculate the similarity score between the keyword and a project name.
 score ::
   -- | The keyword
-  Text ->
+  Keyword ->
   -- | Project name
   Text ->
   -- | The score
   Int
-score keyword name =
+score (Keyword keyword) name =
   if k `T.isInfixOf` n
     then
       if T.length k == T.length n
@@ -104,11 +107,11 @@ score keyword name =
 -- | Prompt the user to choose among the given projects.
 chooseMatch ::
   -- | The keyword
-  Text ->
+  Keyword ->
   -- | The projects to choose from
   NonEmpty Project ->
   IO Project
-chooseMatch keyword xs = do
+chooseMatch (Keyword keyword) xs = do
   -- TODO The use of color should be configurable
   let withSGR sgrs m = do
         hSetSGR stderr sgrs
@@ -163,7 +166,7 @@ giveup msg = do
 
 data Opts = Opts
   { -- | Keyword that identifies the project.
-    optKeyword :: Text -- TODO have a wrapper for keyword
+    optKeyword :: Keyword
   }
 
 optsParserInfo :: ParserInfo Opts
@@ -194,7 +197,7 @@ optsParserInfo =
 optsParser :: Parser Opts
 optsParser =
   Opts
-    <$> (argument str . mconcat)
+    <$> (fmap Keyword . argument str . mconcat)
       [ metavar "KEYWORD",
         help "Keyword that is used to identify the name of the project"
       ]
